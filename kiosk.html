@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Countdown Kiosk</title>
+
+<style>
+:root {
+  --bg:#fff; --fg:#000; --box:#eee; --accent:#ff5555;
+}
+body {
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:Arial,sans-serif;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+body.dark { --bg:#111; --fg:#eee; --box:#222; }
+body.neon { --bg:#050014; --fg:#00fff7; --box:#0d0033; --accent:#ff00ff; }
+
+
+header {
+  padding:10px;
+  display:flex;
+  justify-content:center;
+  gap:10px;
+}
+header.hidden { display:none; }
+
+main {
+  flex:1;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+}
+main.row { flex-direction:row; }
+main.column { flex-direction:column; }
+
+.clock {
+  background:var(--box);
+  padding:25px;
+  margin:15px;
+  width:320px;
+  border-radius:12px;
+  text-align:center;
+}
+
+.clock input {
+  font-size:1.6rem;
+  font-weight:bold;
+  text-align:center;
+  width:100%;
+  border:none;
+  background:transparent;
+  color:var(--fg);
+  margin-bottom:8px;
+}
+.time { font-size:3rem; margin:10px 0; }
+.flash { animation:flash .5s alternate 6; }
+
+.negative {
+  color: red;
+}
+
+.target {
+  font-size: 1rem;
+  margin-top: 6px;
+  color: #777;
+}
+
+.neonDate {
+  text-align: center;
+  font-size: 3.2rem;
+  font-weight: bold;
+  padding: 12px 0;
+  letter-spacing: 2px;
+}
+
+/* Neon glow */
+body.neon .neonDate {
+  color: #00fff7;
+  text-shadow:
+    0 0 6px #00fff7,
+    0 0 12px #00fff7,
+    0 0 18px #ff00ff,
+    0 0 24px #ff00ff,
+    0 0 30px #ff00ff;
+}
+
+/* Subtle glow for dark mode */
+body.dark .neonDate {
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255,255,255,0.6);
+}
+
+/* Normal mode */
+body:not(.dark):not(.neon) .neonDate {
+  color: #111;
+  text-shadow: none;
+}
+
+
+@keyframes flash {
+  from { background:var(--box); }
+  to { background:var(--accent); }
+}
+
+table { width:100%; font-size:.85rem; }
+.setup-only.hidden { display:none; }
+</style>
+</head>
+<body>
+<div id="currentDate" class="neonDate"></div>
+<header id="controls">
+  <button onclick="toggleSetup()">Setup</button>
+  <button onclick="toggleFullscreen()">Fullscreen</button>
+
+  <select id="theme">
+    <option value="">Light</option>
+    <option value="dark">Dark</option>
+    <option value="neon">Neon</option>
+  </select>
+
+  <select id="layout">
+    <option value="row">Side by side</option>
+    <option value="column">Stacked</option>
+  </select>
+</header>
+
+<main id="layoutRoot">
+  <div class="clock" id="clock1">
+  <input id="label1">
+  <div class="time" id="time1">--:--:--</div>
+  <div class="target" id="target1"></div>
+  <table id="schedule1" class="setup-only"></table>
+</div>
+
+<div class="clock" id="clock2">
+  <input id="label2">
+  <div class="time" id="time2">--:--:--</div>
+  <div class="target" id="target2"></div>
+  <table id="schedule2" class="setup-only"></table>
+</div>
+
+</main>
+
+<div class="setup-only" style="text-align:center">
+  <p>Remote edit link:</p>
+  <canvas id="qr"></canvas>
+</div>
+
+<audio id="beep">
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=">
+</audio>
+
+<script src="https://cdn.jsdelivr.net/npm/qrious/dist/qrious.min.js"></script>
+<script>
+const days=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const KEY="kioskPro";
+
+const defaults={
+  setup:true,
+  theme:"",
+  layout:"row",
+  clock1:{label:"Clock 1",schedule:{1:"09:00"},fired:{}},
+  clock2:{label:"Clock 2",schedule:{5:"17:00"},fired:{}}
+};
+
+let cfg=JSON.parse(localStorage.getItem(KEY))||defaults;
+const qs=new URLSearchParams(location.search);
+if(qs.get("edit")==="1") cfg.setup=true;
+
+function save(){localStorage.setItem(KEY,JSON.stringify(cfg));}
+
+function formatDate(d){
+  const options = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
+  return d.toLocaleDateString(undefined, options);
+}
+
+function updateDate(){
+  document.getElementById("currentDate").textContent = formatDate(new Date());
+}
+
+function updateTargets(){
+  const now = new Date();
+  const today = now.getDay();
+
+  const t1 = cfg.clock1.schedule[today];
+  const t2 = cfg.clock2.schedule[today];
+
+  document.getElementById("target1").textContent =
+    t1 ? `Target: ${t1}` : "No target today";
+
+  document.getElementById("target2").textContent =
+    t2 ? `Target: ${t2}` : "No target today";
+}
+
+
+function buildSchedule(id){
+  const t=document.getElementById(`schedule${id}`);
+  t.innerHTML="";
+  days.forEach((d,i)=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${d}</td><td><input type=time value="${cfg[`clock${id}`].schedule[i]||""}"></td>`;
+    tr.querySelector("input").onchange=e=>{
+      e.target.value?cfg[`clock${id}`].schedule[i]=e.target.value:delete cfg[`clock${id}`].schedule[i];
+      save();
+    };
+    t.appendChild(tr);
+  });
+}
+
+function update(id){
+  const c = cfg[`clock${id}`];
+  const el = document.getElementById(`time${id}`);
+  const box = document.getElementById(`clock${id}`);
+  const now = new Date();
+  const today = now.getDay();
+
+  const t = c.schedule[today];
+  if (!t) {
+    el.textContent = "--:--:--";
+    el.classList.remove("negative");
+    return;
+  }
+
+  const [h, m] = t.split(":").map(Number);
+  const target = new Date();
+  target.setHours(h, m, 0, 0);
+
+  let diff = target - now;
+  const passed = diff < 0;
+
+  diff = Math.abs(diff);
+  const totalSeconds = Math.floor(diff / 1000);
+  const hh = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+  const ss = String(totalSeconds % 60).padStart(2, "0");
+
+  el.textContent = `${passed ? "-" : ""}${hh}:${mm}:${ss}`;
+  el.classList.toggle("negative", passed);
+
+  // Fire alert once when crossing zero
+  if (passed && !c.fired[today]) {
+    document.getElementById("beep").play();
+    box.classList.add("flash");
+    c.fired[today] = true;
+    save();
+    setTimeout(() => box.classList.remove("flash"), 3000);
+  }
+
+  if (!passed) {
+    c.fired[today] = false;
+  }
+}
+
+
+
+function init(id){
+  const l=document.getElementById(`label${id}`);
+  l.value=cfg[`clock${id}`].label;
+  l.disabled=!cfg.setup;
+  l.oninput=e=>{cfg[`clock${id}`].label=e.target.value; save();}
+  buildSchedule(id);
+}
+
+function toggleSetup(){
+  cfg.setup=!cfg.setup; save(); applySetup();
+}
+
+function applySetup(){
+  document.querySelectorAll(".setup-only")
+    .forEach(e=>e.classList.toggle("hidden",!cfg.setup));
+  document.getElementById("controls")
+    .classList.toggle("hidden",!cfg.setup);
+  init(1); init(2);
+}
+
+function toggleFullscreen(){
+  document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();
+}
+
+/* theme + layout */
+document.body.className=cfg.theme;
+layoutRoot.className=cfg.layout;
+theme.value=cfg.theme;
+layout.value=cfg.layout;
+
+theme.onchange=e=>{cfg.theme=e.target.value;document.body.className=cfg.theme;save();}
+layout.onchange=e=>{cfg.layout=e.target.value;layoutRoot.className=cfg.layout;save();}
+
+/* QR */
+new QRious({
+  element:document.getElementById("qr"),
+  value:location.origin+location.pathname+"?edit=1",
+  size:150
+});
+
+/* Auto reload daily */
+(function(){
+  const now=new Date();
+  const reload=new Date();
+  reload.setHours(0,5,0,0);
+  if(reload<now) reload.setDate(reload.getDate()+1);
+  setTimeout(()=>location.reload(),reload-now);
+})();
+
+function resetAtMidnight() {
+  const now = new Date();
+  const midnight = new Date();
+  midnight.setHours(24, 0, 0, 0);
+
+  setTimeout(() => {
+    cfg.clock1.fired = {};
+    cfg.clock2.fired = {};
+    save();
+    location.reload();
+  }, midnight - now);
+}
+
+resetAtMidnight();
+
+applySetup();
+init(1); init(2);
+setInterval(() => {
+  updateDate();
+  updateTargets();
+  update(1);
+  update(2);
+}, 1000);
+</script>
+
+</body>
+</html>
