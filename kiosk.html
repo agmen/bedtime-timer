@@ -164,8 +164,14 @@ const defaults={
   setup:true,
   theme:"",
   layout:"row",
-  clock1:{label:"Clock 1",schedule:{1:"09:00"},fired:{}},
-  clock2:{label:"Clock 2",schedule:{5:"17:00"},fired:{}}
+  clock1:{label:"Wind down",schedule:{0:"19:30",1:"19:30",
+									2:"19:30",3:"19:30",
+									4:"19:30",5:"20:30",
+									6:"20:30"},fired:{}},
+  clock2:{label:"Bedtime",schedule:{0:"20:00",1:"20:00",
+									2:"20:00",3:"20:00",
+									4:"20:00",5:"21:00",
+									6:"21:00"},fired:{}},
 };
 
 let cfg=JSON.parse(localStorage.getItem(KEY))||defaults;
